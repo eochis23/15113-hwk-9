@@ -2,19 +2,25 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { Chess, type Move, type PieceSymbol, type Square } from 'chess.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import {
+  Alert,
+  InteractionManager,
+  Pressable,
+  ScrollView,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import { PieceGlyphText } from '@/components/piece-glyph';
 import { boardPalette } from '@/constants/board-themes';
 import { difficultyDepth, pickBestChessMove } from '@/lib/ai/chess-ai';
-import { reviewStandardMove } from '@/lib/ai/review';
 import { MainChessController, moveToUci } from '@/lib/games/chess-controller';
 import type {
   AppearanceSettings,
   CpuDifficulty,
   MoveEntry,
   PlayerKind,
-  ReviewEntry,
   SavedGameRecord,
   TimeControlId,
 } from '@/lib/games/types';
@@ -56,7 +62,6 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
 
   const [selected, setSelected] = useState<Square | null>(null);
   const savedOnceRef = useRef(false);
-  const [review, setReview] = useState<ReviewEntry[]>([]);
   const [moveLog, setMoveLog] = useState<MoveEntry[]>([]);
 
   const tc = useMemo(() => getTimeControl(timeControlId), [timeControlId]);
@@ -69,7 +74,6 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
     setWhiteMs(tc.initialMs);
     setBlackMs(tc.initialMs);
     savedOnceRef.current = false;
-    setReview([]);
     setMoveLog([]);
     setSelected(null);
     bump();
@@ -120,7 +124,7 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
   );
 
   const saveIfNeeded = useCallback(
-    (result: string, moves: MoveEntry[], rev: ReviewEntry[]) => {
+    (result: string, moves: MoveEntry[]) => {
       if (savedOnceRef.current) return;
       savedOnceRef.current = true;
       const rec: SavedGameRecord = {
@@ -129,7 +133,7 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
         createdAt: Date.now(),
         result,
         moves,
-        review: rev,
+        review: [],
         whiteLabel: white === 'cpu' ? `CPU (${cpuDifficulty})` : 'Human',
         blackLabel: black === 'cpu' ? `CPU (${cpuDifficulty})` : 'Human',
         timeControlId: tc.id,
@@ -141,28 +145,31 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
 
   useEffect(() => {
     const r = ctrl.result();
-    if (r) saveIfNeeded(r, moveLog, review);
-  }, [tick, ctrl, saveIfNeeded, moveLog, review]);
+    if (r) saveIfNeeded(r, moveLog);
+  }, [tick, ctrl, saveIfNeeded, moveLog]);
 
   const runCpuOnce = useCallback(() => {
     const t = ctrl.turn();
     if (playerForSide(t) !== 'cpu') return;
-    const chess = new Chess(ctrl.fen());
+    const fen = ctrl.fen();
     const depth = difficultyDepth(cpuDifficulty);
-    const best = pickBestChessMove(chess, depth, false);
-    if (!best) return;
-    const played = ctrl.tryMove(best.from, best.to, best.promotion);
-    if (played) {
-      appendMove(played.san, ctrl.fen(), moveToUci(played));
-      hapticLight();
-      bump();
-    }
+    InteractionManager.runAfterInteractions(() => {
+      const chess = new Chess(fen);
+      const best = pickBestChessMove(chess, depth, false);
+      if (!best) return;
+      const played = ctrl.tryMove(best.from, best.to, best.promotion);
+      if (played) {
+        appendMove(played.san, ctrl.fen(), moveToUci(played));
+        hapticLight();
+        bump();
+      }
+    });
   }, [ctrl, cpuDifficulty, appendMove, playerForSide]);
 
   useEffect(() => {
     const t = ctrl.turn();
     if (playerForSide(t) !== 'cpu') return;
-    const id = setTimeout(runCpuOnce, 450);
+    const id = setTimeout(runCpuOnce, 80);
     return () => clearTimeout(id);
   }, [tick, ctrl, runCpuOnce, playerForSide]);
 
@@ -200,26 +207,8 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
       pieceFrom?.type === 'p' &&
       ((pieceFrom.color === 'w' && sq[1] === '8') || (pieceFrom.color === 'b' && sq[1] === '1'));
     const tryPlay = (promo?: PieceSymbol): boolean => {
-      const fenBefore = ctrl.fen();
       const played: Move | null = ctrl.tryMove(from, sq as Square, promo);
       if (!played) return false;
-      if (white === 'human' || black === 'human') {
-        const humanColor = white === 'human' ? 'w' : 'b';
-        if (played.color === humanColor) {
-          const rev = reviewStandardMove(fenBefore, played, false);
-          if (rev) {
-            setReview((r) => [
-              ...r,
-              {
-                plyIndex: r.length,
-                playedSan: played.san,
-                suggestedSan: rev.suggestedSan,
-                note: rev.note,
-              },
-            ]);
-          }
-        }
-      }
       appendMove(played.san, ctrl.fen(), moveToUci(played));
       setSelected(null);
       hapticLight();
@@ -374,18 +363,6 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
           );
         })}
       </View>
-      {review.length > 0 ? (
-        <>
-          <Text selectable style={{ fontWeight: '600' }}>
-            Review
-          </Text>
-          {review.map((r, i) => (
-            <Text selectable key={i}>
-              {r.playedSan}: {r.note}
-            </Text>
-          ))}
-        </>
-      ) : null}
       {ctrl.result() ? (
         <Text selectable style={{ fontSize: 18, fontWeight: '700' }}>
           Result: {ctrl.result()}

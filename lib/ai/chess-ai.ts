@@ -107,5 +107,5 @@ export function pickBestChessMove(chess: Chess, depth: number, atomic: boolean):
 export function difficultyDepth(d: 'easy' | 'medium' | 'hard'): number {
   if (d === 'easy') return 2;
   if (d === 'medium') return 3;
-  return 4;
+  return 3;
 }

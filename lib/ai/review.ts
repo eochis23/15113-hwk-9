@@ -8,7 +8,7 @@ export function reviewStandardMove(
   atomic: boolean
 ): { suggestedSan: string; note: string } | null {
   const chess = new Chess(fenBefore);
-  const best = pickBestChessMove(chess, 3, atomic);
+  const best = pickBestChessMove(chess, 2, atomic);
   if (!best) return null;
   if (
     best.from === played.from &&
