@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   InteractionManager,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -40,6 +41,38 @@ function formatClock(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+type GameOverInfo = { title: string; message: string; result: string };
+
+function describeChessEnd(result: string, chess: Chess): GameOverInfo {
+  if (result === '1-0') {
+    return {
+      title: 'White wins',
+      message: chess.isCheckmate() ? 'Checkmate.' : 'Game over.',
+      result: '1-0',
+    };
+  }
+  if (result === '0-1') {
+    return {
+      title: 'Black wins',
+      message: chess.isCheckmate() ? 'Checkmate.' : 'Game over.',
+      result: '0-1',
+    };
+  }
+  let message = 'Draw.';
+  if (chess.isStalemate()) message = 'Stalemate — the player to move has no legal moves.';
+  else if (chess.isInsufficientMaterial()) message = 'Draw by insufficient material.';
+  else if (chess.isThreefoldRepetition()) message = 'Draw by threefold repetition.';
+  else message = 'Draw (fifty-move rule or agreement).';
+  return { title: 'Draw', message, result: '1/2-1/2' };
+}
+
+function timeForfeitInfo(loser: 'w' | 'b'): GameOverInfo {
+  if (loser === 'w') {
+    return { title: 'Black wins', message: 'White ran out of time.', result: '0-1' };
+  }
+  return { title: 'White wins', message: 'Black ran out of time.', result: '1-0' };
+}
+
 type Props = {
   white: PlayerKind;
   black: PlayerKind;
@@ -69,6 +102,9 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
 
   const [whiteMs, setWhiteMs] = useState(tc.initialMs);
   const [blackMs, setBlackMs] = useState(tc.initialMs);
+  const [gameOver, setGameOver] = useState<GameOverInfo | null>(null);
+  const gameOverRef = useRef<GameOverInfo | null>(null);
+  gameOverRef.current = gameOver;
 
   useEffect(() => {
     setWhiteMs(tc.initialMs);
@@ -76,32 +112,28 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
     savedOnceRef.current = false;
     setMoveLog([]);
     setSelected(null);
+    setGameOver(null);
     bump();
   }, [tc.initialMs]);
 
   useEffect(() => {
     if (tc.id === 'unlimited' || tc.initialMs <= 0) return;
+    if (gameOver) return;
+    let lastAt = Date.now();
     const id = setInterval(() => {
+      if (gameOverRef.current || ctrl.result()) return;
+      const now = Date.now();
+      const dt = now - lastAt;
+      lastAt = now;
       const turn = ctrl.turn();
       if (turn === 'w') {
-        setWhiteMs((ms) => Math.max(0, ms - 100));
+        setWhiteMs((ms) => Math.max(0, ms - dt));
       } else {
-        setBlackMs((ms) => Math.max(0, ms - 100));
+        setBlackMs((ms) => Math.max(0, ms - dt));
       }
     }, 100);
     return () => clearInterval(id);
-  }, [tc.id, tc.initialMs, tick, ctrl]);
-
-  useEffect(() => {
-    if (tc.id === 'unlimited' || tc.initialMs <= 0) return;
-    if (moveLog.length === 0) return;
-    if (whiteMs <= 0) {
-      Alert.alert('Time', 'White forfeits on time.', [{ text: 'OK', onPress: () => router.back() }]);
-    }
-    if (blackMs <= 0) {
-      Alert.alert('Time', 'Black forfeits on time.', [{ text: 'OK', onPress: () => router.back() }]);
-    }
-  }, [whiteMs, blackMs, tc, moveLog.length, router]);
+  }, [tc.id, tc.initialMs, ctrl, gameOver]);
 
   const playerForSide = useCallback(
     (t: 'w' | 'b'): PlayerKind => (t === 'w' ? white : black),
@@ -144,9 +176,28 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
   );
 
   useEffect(() => {
+    if (gameOver) return;
+    if (tc.id === 'unlimited' || tc.initialMs <= 0) return;
+    if (whiteMs <= 0) {
+      const info = timeForfeitInfo('w');
+      setGameOver(info);
+      saveIfNeeded(info.result, moveLog);
+    } else if (blackMs <= 0) {
+      const info = timeForfeitInfo('b');
+      setGameOver(info);
+      saveIfNeeded(info.result, moveLog);
+    }
+  }, [whiteMs, blackMs, tc, moveLog, gameOver, saveIfNeeded]);
+
+  useEffect(() => {
+    if (gameOver) return;
     const r = ctrl.result();
-    if (r) saveIfNeeded(r, moveLog);
-  }, [tick, ctrl, saveIfNeeded, moveLog]);
+    if (!r) return;
+    const chess = new Chess(ctrl.fen());
+    const info = describeChessEnd(r, chess);
+    setGameOver(info);
+    saveIfNeeded(r, moveLog);
+  }, [tick, ctrl, moveLog, gameOver, saveIfNeeded]);
 
   const runCpuOnce = useCallback(() => {
     const t = ctrl.turn();
@@ -154,6 +205,7 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
     const fen = ctrl.fen();
     const depth = difficultyDepth(cpuDifficulty);
     InteractionManager.runAfterInteractions(() => {
+      if (gameOverRef.current) return;
       const chess = new Chess(fen);
       const best = pickBestChessMove(chess, depth, false);
       if (!best) return;
@@ -167,11 +219,12 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
   }, [ctrl, cpuDifficulty, appendMove, playerForSide]);
 
   useEffect(() => {
+    if (gameOver) return;
     const t = ctrl.turn();
     if (playerForSide(t) !== 'cpu') return;
     const id = setTimeout(runCpuOnce, 80);
     return () => clearTimeout(id);
-  }, [tick, ctrl, runCpuOnce, playerForSide]);
+  }, [tick, ctrl, runCpuOnce, playerForSide, gameOver]);
 
   const files = 'abcdefgh';
   const fen = ctrl.fen();
@@ -185,6 +238,7 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
   }
 
   const onCell = (sq: string) => {
+    if (gameOver) return;
     const st = ctrl.turn();
     if (playerForSide(st) !== 'human') return;
 
@@ -246,6 +300,7 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       style={{ flex: 1 }}
@@ -363,11 +418,42 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
           );
         })}
       </View>
-      {ctrl.result() ? (
-        <Text selectable style={{ fontSize: 18, fontWeight: '700' }}>
-          Result: {ctrl.result()}
-        </Text>
-      ) : null}
     </ScrollView>
+    <Modal visible={gameOver !== null} transparent animationType="fade">
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.55)',
+          justifyContent: 'center',
+          padding: 24,
+        }}>
+        <View
+          style={{
+            backgroundColor: '#2a2a32',
+            borderRadius: 16,
+            padding: 24,
+            gap: 14,
+            maxWidth: 400,
+            alignSelf: 'center',
+            width: '100%',
+          }}>
+          <Text style={{ fontSize: 13, color: '#888', fontWeight: '600' }}>Game over</Text>
+          <Text style={{ fontSize: 24, fontWeight: '700', color: '#fff' }}>{gameOver?.title}</Text>
+          <Text style={{ fontSize: 16, color: '#c8c8d0', lineHeight: 22 }}>{gameOver?.message}</Text>
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              marginTop: 8,
+              paddingVertical: 14,
+              borderRadius: 12,
+              backgroundColor: '#0a84ff',
+              alignItems: 'center',
+            }}>
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Done</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+    </View>
   );
 }
