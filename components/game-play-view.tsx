@@ -1,0 +1,324 @@
+import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
+import { Chess, type Move, type PieceSymbol, type Square } from 'chess.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+
+import { PieceGlyphText } from '@/components/piece-glyph';
+import { boardPalette } from '@/constants/board-themes';
+import { difficultyDepth, pickBestChessMove } from '@/lib/ai/chess-ai';
+import { reviewStandardMove } from '@/lib/ai/review';
+import { MainChessController, moveToUci } from '@/lib/games/chess-controller';
+import type {
+  AppearanceSettings,
+  CpuDifficulty,
+  MoveEntry,
+  PlayerKind,
+  ReviewEntry,
+  SavedGameRecord,
+  TimeControlId,
+} from '@/lib/games/types';
+import { getTimeControl } from '@/lib/games/types';
+import { gameHistoryStorage } from '@/lib/storage/game-history';
+
+function hapticLight() {
+  if (process.env.EXPO_OS === 'ios') {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+}
+
+type Props = {
+  white: PlayerKind;
+  black: PlayerKind;
+  cpuDifficulty: CpuDifficulty;
+  timeControlId: TimeControlId;
+  appearance: AppearanceSettings;
+};
+
+/** Standard chess only — other variants will get their own screens later. */
+export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appearance }: Props) {
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const size = Math.min(width - 32, 360);
+  const cell = size / 8;
+
+  const [tick, setTick] = useState(0);
+  const bump = () => setTick((t) => t + 1);
+
+  const ctrl = useMemo(() => new MainChessController('standard'), []);
+
+  const [selected, setSelected] = useState<Square | null>(null);
+  const savedOnceRef = useRef(false);
+  const [review, setReview] = useState<ReviewEntry[]>([]);
+  const [moveLog, setMoveLog] = useState<MoveEntry[]>([]);
+
+  const tc = useMemo(() => getTimeControl(timeControlId), [timeControlId]);
+  const colors = boardPalette(appearance.boardTheme);
+
+  const [whiteMs, setWhiteMs] = useState(tc.initialMs);
+  const [blackMs, setBlackMs] = useState(tc.initialMs);
+
+  useEffect(() => {
+    setWhiteMs(tc.initialMs);
+    setBlackMs(tc.initialMs);
+    savedOnceRef.current = false;
+    setReview([]);
+    setMoveLog([]);
+    setSelected(null);
+    bump();
+  }, [tc.initialMs]);
+
+  useEffect(() => {
+    if (tc.id === 'unlimited' || tc.initialMs <= 0) return;
+    const id = setInterval(() => {
+      const turn = ctrl.turn();
+      if (turn === 'w') {
+        setWhiteMs((ms) => Math.max(0, ms - 100));
+      } else {
+        setBlackMs((ms) => Math.max(0, ms - 100));
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [tc.id, tc.initialMs, tick, ctrl]);
+
+  useEffect(() => {
+    if (tc.id === 'unlimited' || tc.initialMs <= 0) return;
+    if (moveLog.length === 0) return;
+    if (whiteMs <= 0) {
+      Alert.alert('Time', 'White forfeits on time.', [{ text: 'OK', onPress: () => router.back() }]);
+    }
+    if (blackMs <= 0) {
+      Alert.alert('Time', 'Black forfeits on time.', [{ text: 'OK', onPress: () => router.back() }]);
+    }
+  }, [whiteMs, blackMs, tc, moveLog.length, router]);
+
+  const playerForSide = useCallback(
+    (t: 'w' | 'b'): PlayerKind => (t === 'w' ? white : black),
+    [white, black]
+  );
+
+  const appendMove = useCallback(
+    (san: string, fenAfter: string, uci: string) => {
+      setMoveLog((prev) => {
+        const next = [...prev, { san, fenAfter, uci }];
+        if (tc.incrementMs > 0) {
+          const lastMover = next.length % 2 === 1 ? 'w' : 'b';
+          if (lastMover === 'w') setWhiteMs((ms) => ms + tc.incrementMs);
+          else setBlackMs((ms) => ms + tc.incrementMs);
+        }
+        return next;
+      });
+    },
+    [tc.incrementMs]
+  );
+
+  const saveIfNeeded = useCallback(
+    (result: string, moves: MoveEntry[], rev: ReviewEntry[]) => {
+      if (savedOnceRef.current) return;
+      savedOnceRef.current = true;
+      const rec: SavedGameRecord = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        mode: 'standard',
+        createdAt: Date.now(),
+        result,
+        moves,
+        review: rev,
+        whiteLabel: white === 'cpu' ? `CPU (${cpuDifficulty})` : 'Human',
+        blackLabel: black === 'cpu' ? `CPU (${cpuDifficulty})` : 'Human',
+        timeControlId: tc.id,
+      };
+      gameHistoryStorage.save(rec);
+    },
+    [white, black, cpuDifficulty, tc.id]
+  );
+
+  useEffect(() => {
+    const r = ctrl.result();
+    if (r) saveIfNeeded(r, moveLog, review);
+  }, [tick, ctrl, saveIfNeeded, moveLog, review]);
+
+  const runCpuOnce = useCallback(() => {
+    const t = ctrl.turn();
+    if (playerForSide(t) !== 'cpu') return;
+    const chess = new Chess(ctrl.fen());
+    const depth = difficultyDepth(cpuDifficulty);
+    const best = pickBestChessMove(chess, depth, false);
+    if (!best) return;
+    const played = ctrl.tryMove(best.from, best.to, best.promotion);
+    if (played) {
+      appendMove(played.san, ctrl.fen(), moveToUci(played));
+      hapticLight();
+      bump();
+    }
+  }, [ctrl, cpuDifficulty, appendMove, playerForSide]);
+
+  useEffect(() => {
+    const t = ctrl.turn();
+    if (playerForSide(t) !== 'cpu') return;
+    const id = setTimeout(runCpuOnce, 450);
+    return () => clearTimeout(id);
+  }, [tick, ctrl, runCpuOnce, playerForSide]);
+
+  const files = 'abcdefgh';
+  const fen = ctrl.fen();
+  const chess = new Chess(fen);
+
+  const legalTo = new Set<string>();
+  if (selected) {
+    for (const mv of ctrl.legalMovesVerbose()) {
+      if (mv.from === selected) legalTo.add(mv.to);
+    }
+  }
+
+  const onCell = (sq: string) => {
+    const st = ctrl.turn();
+    if (playerForSide(st) !== 'human') return;
+
+    if (!selected) {
+      const piece = chess.get(sq as Square);
+      if (piece && piece.color === ctrl.turn()) {
+        setSelected(sq as Square);
+        hapticLight();
+      }
+      return;
+    }
+    const from = selected;
+    const pieceFrom = chess.get(from);
+    const needsPromo =
+      pieceFrom?.type === 'p' &&
+      ((pieceFrom.color === 'w' && sq[1] === '8') || (pieceFrom.color === 'b' && sq[1] === '1'));
+    const tryPlay = (promo?: PieceSymbol) => {
+      const fenBefore = ctrl.fen();
+      const played: Move | null = ctrl.tryMove(from, sq as Square, promo);
+      if (played) {
+        if (white === 'human' || black === 'human') {
+          const humanColor = white === 'human' ? 'w' : 'b';
+          if (played.color === humanColor) {
+            const rev = reviewStandardMove(fenBefore, played, false);
+            if (rev) {
+              setReview((r) => [
+                ...r,
+                {
+                  plyIndex: r.length,
+                  playedSan: played.san,
+                  suggestedSan: rev.suggestedSan,
+                  note: rev.note,
+                },
+              ]);
+            }
+          }
+        }
+        appendMove(played.san, ctrl.fen(), moveToUci(played));
+        setSelected(null);
+        hapticLight();
+        bump();
+      }
+    };
+    if (needsPromo) {
+      Alert.alert('Promotion', 'Choose', [
+        { text: 'Queen', onPress: () => tryPlay('q') },
+        { text: 'Rook', onPress: () => tryPlay('r') },
+        { text: 'Bishop', onPress: () => tryPlay('b') },
+        { text: 'Knight', onPress: () => tryPlay('n') },
+        { text: 'Cancel', style: 'cancel', onPress: () => setSelected(null) },
+      ]);
+      return;
+    }
+    tryPlay();
+  };
+
+  const rows: { sq: string; light: boolean; piece: ReturnType<Chess['get']> }[][] = [];
+  for (let r = 0; r < 8; r++) {
+    const row: { sq: string; light: boolean; piece: ReturnType<Chess['get']> }[] = [];
+    for (let f = 0; f < 8; f++) {
+      const sq = `${files[f]}${8 - r}` as Square;
+      const light = (r + f) % 2 === 0;
+      row.push({ sq, light, piece: chess.get(sq) });
+    }
+    rows.push(row);
+  }
+
+  return (
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <Text selectable style={{ fontSize: 13, opacity: 0.7 }}>
+        Standard chess · {white === 'cpu' ? `CPU ${cpuDifficulty}` : 'Human'} vs{' '}
+        {black === 'cpu' ? `CPU ${cpuDifficulty}` : 'Human'}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 16, justifyContent: 'space-between' }}>
+        <Text selectable style={{ fontVariant: ['tabular-nums'] }}>
+          White {tc.id === 'unlimited' ? '∞' : `${Math.max(0, Math.ceil(whiteMs / 1000))}s`}
+        </Text>
+        <Text selectable style={{ fontVariant: ['tabular-nums'] }}>
+          Black {tc.id === 'unlimited' ? '∞' : `${Math.max(0, Math.ceil(blackMs / 1000))}s`}
+        </Text>
+      </View>
+      <View style={{ width: size, height: size }}>
+        {rows.map((row, ri) => (
+          <View key={ri} style={{ flexDirection: 'row', height: cell }}>
+            {row.map((cellObj) => {
+              const bg = cellObj.light ? colors.light : colors.dark;
+              const hi = selected === cellObj.sq || legalTo.has(cellObj.sq);
+              return (
+                <Pressable
+                  key={cellObj.sq}
+                  onPress={() => onCell(cellObj.sq)}
+                  style={{
+                    width: cell,
+                    height: cell,
+                    backgroundColor: bg,
+                    borderWidth: hi ? 2 : 0,
+                    borderColor: '#0a84ff',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                  {cellObj.piece ? (
+                    <PieceGlyphText
+                      type={cellObj.piece.type}
+                      color={cellObj.piece.color}
+                      theme={appearance.pieceTheme}
+                    />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+      <Text selectable style={{ fontWeight: '600' }}>
+        Moves
+      </Text>
+      <View style={{ gap: 4, maxHeight: 160 }}>
+        {Array.from({ length: Math.ceil(moveLog.length / 2) }, (_, i) => {
+          const a = moveLog[i * 2]?.san;
+          const b = moveLog[i * 2 + 1]?.san;
+          return (
+            <Text key={i} selectable>
+              {i + 1}. {a}
+              {b ? ` ${b}` : ''}
+            </Text>
+          );
+        })}
+      </View>
+      {review.length > 0 ? (
+        <>
+          <Text selectable style={{ fontWeight: '600' }}>
+            Review
+          </Text>
+          {review.map((r, i) => (
+            <Text selectable key={i}>
+              {r.playedSan}: {r.note}
+            </Text>
+          ))}
+        </>
+      ) : null}
+      {ctrl.result() ? (
+        <Text selectable style={{ fontSize: 18, fontWeight: '700' }}>
+          Result: {ctrl.result()}
+        </Text>
+      ) : null}
+    </ScrollView>
+  );
+}
