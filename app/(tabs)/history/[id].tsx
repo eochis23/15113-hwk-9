@@ -7,12 +7,13 @@ import { computeStandardGameReview } from '@/lib/games/compute-game-review';
 import { gameHistoryStorage } from '@/lib/storage/game-history';
 
 const TAB_BAR_CLEARANCE = 72;
+const SCROLL_END_PADDING = 56;
 
 export default function HistoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const padBottom = insets.bottom + TAB_BAR_CLEARANCE;
+  const padBottom = insets.bottom + TAB_BAR_CLEARANCE + SCROLL_END_PADDING;
 
   const rec = useMemo(() => (id ? gameHistoryStorage.get(id) : undefined), [id]);
 
@@ -20,7 +21,10 @@ export default function HistoryDetailScreen() {
 
   if (!rec) {
     return (
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: padBottom }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ padding: 16, paddingBottom: padBottom }}>
         <Text selectable>Game not found.</Text>
         <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
           <Text selectable style={{ color: '#0a84ff' }}>

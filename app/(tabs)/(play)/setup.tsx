@@ -8,6 +8,8 @@ import type { CpuDifficulty, GameMode, PlayerKind, TimeControlId } from '@/lib/g
 import { TIME_CONTROLS } from '@/lib/games/types';
 
 const TAB_BAR_CLEARANCE = 72;
+/** Extra space so “Start game” clears the tab bar when scroll rests at the bottom. */
+const SCROLL_END_PADDING = 56;
 
 export default function SetupScreen() {
   const { mode: modeParam } = useLocalSearchParams<{ mode: string }>();
@@ -27,7 +29,7 @@ export default function SetupScreen() {
 
   const appearance = useMemo(() => loadAppearance(), []);
   const insets = useSafeAreaInsets();
-  const padBottom = insets.bottom + TAB_BAR_CLEARANCE;
+  const padBottom = insets.bottom + TAB_BAR_CLEARANCE + SCROLL_END_PADDING;
 
   const start = () => {
     router.push({

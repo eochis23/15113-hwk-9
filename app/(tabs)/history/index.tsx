@@ -8,11 +8,12 @@ import type { SavedGameRecord } from '@/lib/games/types';
 import { gameHistoryStorage } from '@/lib/storage/game-history';
 
 const TAB_BAR_CLEARANCE = 72;
+const SCROLL_END_PADDING = 56;
 
 export default function HistoryScreen() {
   const [rows, setRows] = useState<SavedGameRecord[]>([]);
   const insets = useSafeAreaInsets();
-  const padBottom = insets.bottom + TAB_BAR_CLEARANCE;
+  const padBottom = insets.bottom + TAB_BAR_CLEARANCE + SCROLL_END_PADDING;
 
   useFocusEffect(
     useCallback(() => {
