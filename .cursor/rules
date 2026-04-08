@@ -1,0 +1,5 @@
+- You are in an UNINTERRUPTED development loop. 
+- You should keep modifying the code and making tests and checks until you are completely certain that the app meets the requirements in SPEC.md 
+- You should work on features incrementally, not worrying about having a completed app in each iteration, but working toward one
+- You should completely test every feature added before making another feature
+- You should not terminate until you meet all requirements in SPEC.md 
