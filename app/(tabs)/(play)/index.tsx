@@ -1,7 +1,10 @@
 import { Link } from 'expo-router';
 import { Alert, Pressable, ScrollView, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { GameMode } from '@/lib/games/types';
+
+const TAB_BAR_CLEARANCE = 72;
 
 const MODES: { id: GameMode; label: string; hint: string; ready: boolean }[] = [
   { id: 'standard', label: 'Standard chess', hint: 'FIDE rules — play now', ready: true },
@@ -12,8 +15,15 @@ const MODES: { id: GameMode; label: string; hint: string; ready: boolean }[] = [
 ];
 
 export default function PlayHomeScreen() {
+  const insets = useSafeAreaInsets();
+  const padBottom = insets.bottom + TAB_BAR_CLEARANCE;
+
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 12 }}>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ padding: 16, paddingBottom: padBottom, gap: 12 }}
+      keyboardShouldPersistTaps="handled">
       <Text selectable style={{ fontSize: 20, fontWeight: '700' }}>
         Play
       </Text>

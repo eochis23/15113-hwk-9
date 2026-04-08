@@ -36,15 +36,21 @@ export function PieceGlyphText({
   color,
   theme,
   style,
+  /** When false, touches pass through to parent (e.g. board Pressable). `selectable` steals taps on iOS. */
+  interactive = true,
 }: {
   type: string;
   color: 'w' | 'b';
   theme: PieceThemeId;
   style?: TextStyle;
+  interactive?: boolean;
 }) {
   const ch = pieceGlyph(type, color, theme);
   return (
-    <Text selectable style={[{ fontSize: theme === 'minimal' ? 20 : 28 }, style]}>
+    <Text
+      selectable={interactive}
+      pointerEvents={interactive ? 'auto' : 'none'}
+      style={[{ fontSize: theme === 'minimal' ? 20 : 28 }, style]}>
       {ch}
     </Text>
   );

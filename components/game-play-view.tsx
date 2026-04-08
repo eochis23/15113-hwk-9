@@ -27,6 +27,13 @@ function hapticLight() {
   }
 }
 
+function formatClock(ms: number): string {
+  const sec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 type Props = {
   white: PlayerKind;
   black: PlayerKind;
@@ -183,36 +190,41 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
       return;
     }
     const from = selected;
+    if (sq === from) {
+      setSelected(null);
+      hapticLight();
+      return;
+    }
     const pieceFrom = chess.get(from);
     const needsPromo =
       pieceFrom?.type === 'p' &&
       ((pieceFrom.color === 'w' && sq[1] === '8') || (pieceFrom.color === 'b' && sq[1] === '1'));
-    const tryPlay = (promo?: PieceSymbol) => {
+    const tryPlay = (promo?: PieceSymbol): boolean => {
       const fenBefore = ctrl.fen();
       const played: Move | null = ctrl.tryMove(from, sq as Square, promo);
-      if (played) {
-        if (white === 'human' || black === 'human') {
-          const humanColor = white === 'human' ? 'w' : 'b';
-          if (played.color === humanColor) {
-            const rev = reviewStandardMove(fenBefore, played, false);
-            if (rev) {
-              setReview((r) => [
-                ...r,
-                {
-                  plyIndex: r.length,
-                  playedSan: played.san,
-                  suggestedSan: rev.suggestedSan,
-                  note: rev.note,
-                },
-              ]);
-            }
+      if (!played) return false;
+      if (white === 'human' || black === 'human') {
+        const humanColor = white === 'human' ? 'w' : 'b';
+        if (played.color === humanColor) {
+          const rev = reviewStandardMove(fenBefore, played, false);
+          if (rev) {
+            setReview((r) => [
+              ...r,
+              {
+                plyIndex: r.length,
+                playedSan: played.san,
+                suggestedSan: rev.suggestedSan,
+                note: rev.note,
+              },
+            ]);
           }
         }
-        appendMove(played.san, ctrl.fen(), moveToUci(played));
-        setSelected(null);
-        hapticLight();
-        bump();
       }
+      appendMove(played.san, ctrl.fen(), moveToUci(played));
+      setSelected(null);
+      hapticLight();
+      bump();
+      return true;
     };
     if (needsPromo) {
       Alert.alert('Promotion', 'Choose', [
@@ -224,7 +236,13 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
       ]);
       return;
     }
-    tryPlay();
+    if (!tryPlay()) {
+      const p = chess.get(sq as Square);
+      if (p && p.color === ctrl.turn()) {
+        setSelected(sq as Square);
+        hapticLight();
+      }
+    }
   };
 
   const rows: { sq: string; light: boolean; piece: ReturnType<Chess['get']> }[][] = [];
@@ -247,13 +265,66 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
         Standard chess · {white === 'cpu' ? `CPU ${cpuDifficulty}` : 'Human'} vs{' '}
         {black === 'cpu' ? `CPU ${cpuDifficulty}` : 'Human'}
       </Text>
-      <View style={{ flexDirection: 'row', gap: 16, justifyContent: 'space-between' }}>
-        <Text selectable style={{ fontVariant: ['tabular-nums'] }}>
-          White {tc.id === 'unlimited' ? '∞' : `${Math.max(0, Math.ceil(whiteMs / 1000))}s`}
-        </Text>
-        <Text selectable style={{ fontVariant: ['tabular-nums'] }}>
-          Black {tc.id === 'unlimited' ? '∞' : `${Math.max(0, Math.ceil(blackMs / 1000))}s`}
-        </Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: 10,
+          paddingVertical: 12,
+          paddingHorizontal: 12,
+          borderRadius: 12,
+          backgroundColor: '#1a1a1e',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        }}>
+        <View
+          style={{
+            flex: 1,
+            paddingVertical: 10,
+            paddingHorizontal: 8,
+            borderRadius: 8,
+            borderWidth: 3,
+            borderColor: ctrl.turn() === 'w' && !ctrl.result() ? '#0a84ff' : 'transparent',
+            backgroundColor: ctrl.turn() === 'w' && !ctrl.result() ? '#2a3040' : '#25252c',
+            alignItems: 'center',
+          }}>
+          <Text selectable style={{ color: '#aaa', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+            White
+          </Text>
+          <Text
+            selectable
+            style={{
+              color: '#fff',
+              fontSize: 26,
+              fontWeight: '700',
+              fontVariant: ['tabular-nums'],
+            }}>
+            {tc.id === 'unlimited' ? '∞' : formatClock(whiteMs)}
+          </Text>
+        </View>
+        <View
+          style={{
+            flex: 1,
+            paddingVertical: 10,
+            paddingHorizontal: 8,
+            borderRadius: 8,
+            borderWidth: 3,
+            borderColor: ctrl.turn() === 'b' && !ctrl.result() ? '#0a84ff' : 'transparent',
+            backgroundColor: ctrl.turn() === 'b' && !ctrl.result() ? '#2a3040' : '#25252c',
+            alignItems: 'center',
+          }}>
+          <Text selectable style={{ color: '#aaa', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+            Black
+          </Text>
+          <Text
+            selectable
+            style={{
+              color: '#fff',
+              fontSize: 26,
+              fontWeight: '700',
+              fontVariant: ['tabular-nums'],
+            }}>
+            {tc.id === 'unlimited' ? '∞' : formatClock(blackMs)}
+          </Text>
+        </View>
       </View>
       <View style={{ width: size, height: size }}>
         {rows.map((row, ri) => (
@@ -279,6 +350,7 @@ export function GamePlayView({ white, black, cpuDifficulty, timeControlId, appea
                       type={cellObj.piece.type}
                       color={cellObj.piece.color}
                       theme={appearance.pieceTheme}
+                      interactive={false}
                     />
                   ) : null}
                 </Pressable>

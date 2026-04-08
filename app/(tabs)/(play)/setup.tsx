@@ -1,10 +1,13 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { loadAppearance } from '@/lib/storage/appearance-settings';
 import type { CpuDifficulty, GameMode, PlayerKind, TimeControlId } from '@/lib/games/types';
 import { TIME_CONTROLS } from '@/lib/games/types';
+
+const TAB_BAR_CLEARANCE = 72;
 
 export default function SetupScreen() {
   const { mode: modeParam } = useLocalSearchParams<{ mode: string }>();
@@ -23,6 +26,8 @@ export default function SetupScreen() {
   const [timeId, setTimeId] = useState<TimeControlId>('10+0');
 
   const appearance = useMemo(() => loadAppearance(), []);
+  const insets = useSafeAreaInsets();
+  const padBottom = insets.bottom + TAB_BAR_CLEARANCE;
 
   const start = () => {
     router.push({
@@ -45,7 +50,11 @@ export default function SetupScreen() {
   }
 
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }}>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ padding: 16, paddingBottom: padBottom, gap: 16 }}
+      keyboardShouldPersistTaps="handled">
       <Text selectable style={{ fontSize: 15, opacity: 0.7 }}>
         Standard chess — new game
       </Text>
