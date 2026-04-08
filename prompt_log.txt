@@ -1,0 +1,15 @@
+I used Gemini Pro 3 for asking questions
+I used "Auto, Cursor’s agent router" on cursor pro+ for the agentic process.
+
+Some prompts (made to Gemini)
+"I'm building an app with Expo Go and React Native. 
+Assume all chats in this conversation are about that framework"
+
+"Where can I find the layout of my screen to change things"
+"I want to use this file for an agentic development process with AI.
+ Is it missing anything?"
+"How do I adjst the scroll height of a menu"
+"These buttons [inserted button code] don't have the images I was expecting.
+How do I get rid of them"
+"What's a good feature to add to a chess app?"
+"How do I store info between sessions in this framework?"

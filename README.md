@@ -1,3 +1,15 @@
+#My info:
+My app is an app where you can play chess against another human, or a cpu at 3 levels. I chose it because I like chess.
+
+There are 3 pages, the Play page where the user can select a game mode and play games, the History page where a user can see past games and mistakes they've made, as determined by the highest level bot, and the Styles page where the user can change board and piece styles.
+
+You can setup and run the app like a normal expo app, after installing all dependencies in package.json. No api keys are needed and no secret info is present.
+
+One thing that surprised me was how similar this was to making our websites using html. I know that's the point of expo, but I had always assumed that the barrier to entry would be much higher.
+
+
+
+#Expo's info:
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
